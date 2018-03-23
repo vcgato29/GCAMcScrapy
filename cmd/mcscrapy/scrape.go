@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type collectorOptions func(*colly.Collector)
+
 var (
 	cacheDir     string
 	debugger     bool
@@ -65,87 +67,30 @@ func init() {
 }
 
 func runScrape(site *url.URL) {
-	var (
-		c *colly.Collector
-		d = new(debug.LogDebugger)
-	)
-
-	log.Info("Starting scrape of ", site.Host)
+	log.Info("Creating scrape collector")
+	options := []collectorOptions{
+		colly.AllowedDomains(site.Host),
+		colly.MaxDepth(maxDepth),
+		colly.USerAgent(userAgent),
+	}
 
 	if cacheDir != "" {
 		log.Info("Setting cache directory: ", cacheDir)
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.CacheDir(cacheDir),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
-	} else if debugger {
+		options = append(options, colly.CacheDir(cacheDir))
+	}
+	if debugger {
 		log.Info("Turning on debugger")
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.Debugger(d),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
-	} else if ignoreRobots {
+		d := new(debug.LogDebugger)
+		options = append(options, colly.Debugger(d))
+	}
+	if ignoreRobots {
 		log.Info("Ignoring robots.txt...")
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.IgnoreRobotsTxt(),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
-	} else if cacheDir != "" && debugger {
-		log.Info("Setting cache directory: ", cacheDir)
-		log.Info("Turning on debugger")
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.CacheDir(cacheDir),
-			colly.Debugger(d),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
-	} else if cacheDir != "" && ignoreRobots {
-		log.Info("Ignoring robots.txt...")
-		log.Info("Setting cache directory: ", cacheDir)
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.IgnoreRobotsTxt(),
-			colly.CacheDir(cacheDir),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
-	} else if debugger && ignoreRobots {
-		log.Info("Ignoring robots.txt...")
-		log.Info("Turning on debugger")
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.IgnoreRobotsTxt(),
-			colly.Debugger(d),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
-	} else if ignoreRobots && cacheDir != "" && debugger {
-		log.Info("Ignoring robots.txt...")
-		log.Info("Setting cache directory: ", cacheDir)
-		log.Info("Turning on debugger")
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.IgnoreRobotsTxt(),
-			colly.CacheDir(cacheDir),
-			colly.Debugger(d),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
-	} else {
-		c = colly.NewCollector(
-			colly.AllowedDomains(site.Host),
-			colly.MaxDepth(maxDepth),
-			colly.UserAgent(userAgent),
-		)
+		options = append(options, colly.IgnoreRobotsTxt())
 	}
 
+	c := colly.NewCollector(options...)
+
+	log.Info("Starting scrape of ", site.Host)
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
 		c.Visit(e.Request.AbsoluteURL(link))
