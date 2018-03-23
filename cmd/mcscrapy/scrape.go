@@ -15,8 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type collectorOptions func(*colly.Collector)
-
 var (
 	cacheDir     string
 	debugger     bool
@@ -68,10 +66,10 @@ func init() {
 
 func runScrape(site *url.URL) {
 	log.Info("Creating scrape collector")
-	options := []collectorOptions{
+	options := []func(*colly.Collector){
 		colly.AllowedDomains(site.Host),
 		colly.MaxDepth(maxDepth),
-		colly.USerAgent(userAgent),
+		colly.UserAgent(userAgent),
 	}
 
 	if cacheDir != "" {
