@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,49 +10,139 @@ import (
 	"strings"
 
 	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/debug"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 var (
+	cacheDir     string
+	debugger     bool
 	ignoreRobots bool
+	maxDepth     int
+	scrapePath   string
+	userAgent    string
+	verbose      bool
 	scrapeCmd    = &cobra.Command{
 		Use:     "scrape",
 		Aliases: []string{"s"},
 		Short:   "GCA Wordpress website scraper.",
 		Args:    cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			scrapePath = strings.TrimRight(scrapePath, "/")
+
+			if verbose {
+				log.SetLevel(log.InfoLevel)
+			} else {
+				log.SetLevel(log.WarnLevel)
+			}
+
 			u, err := url.ParseRequestURI(args[0])
 			if err != nil {
 				log.Fatal("URL not valid: ", err)
 			}
 
-			err = os.Mkdir("site/"+u.Host, 0755)
-			if err != nil {
-				log.Warn("site/"+u.Host+" could not be created: ", err)
+			err = os.MkdirAll(scrapePath+"/"+u.Host, 0755)
+			if err != nil && !os.IsExist(err) {
+				log.Fatal(scrapePath+"/"+u.Host, " could not be created: ", err)
 			}
+
 			runScrape(u)
 		},
 	}
-	matcher  = regexp.MustCompile("(\\.\\.\\/)?(http(s?):\\/\\/)?([A-Za-z0-9-_]+)?(\\.)?([A-Za-z0-9-_]+)?(\\.)?([A-Za-z0-9-_]+\\/?)+[A-Za-z0-9-_]*\\.(mp3|ogg|ogv|m4v|mp4|webm|ico|png|jpg|jpeg|gif|eot|woff|ttf|svg)")
+	matcher  = regexp.MustCompile("(\\.\\.\\/)?(http(s?):\\/\\/)?([A-Za-z0-9-_\\.]+)?([A-Za-z0-9-_]+\\/?)+[A-Za-z0-9-_]*\\.(mp3|ogg|ogv|m4v|mp4|webm|ico|png|jpg|jpeg|gif|eot|woff|ttf|svg)")
 	elements = []string{"a", "acronym", "article", "audio", "b", "body", "br", "button", "canvas", "caption", "center", "code", "details", "div", "em", "fieldset", "font", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "head", "hr", "i", "iframe", "img", "input", "label", "legend", "li", "link", "menu", "menuitem", "meter", "nav", "ol", "p", "pre", "progress", "section", "select", "small", "source", "span", "strike", "strong", "table", "tbody", "td", "textarea", "tfoot", "th", "thead", "title", "tr", "tt", "ul", "video"}
 )
 
 func init() {
+	scrapeCmd.PersistentFlags().StringVarP(&cacheDir, "cache", "c", "", "Specify where requests are caches as files.")
+	scrapeCmd.PersistentFlags().BoolVarP(&debugger, "debug", "d", false, "Output of debug logs.")
 	scrapeCmd.PersistentFlags().BoolVarP(&ignoreRobots, "ignore-robots", "i", false, "Ignore restrictions set by a host's robots.txt file.")
+	scrapeCmd.PersistentFlags().IntVarP(&maxDepth, "max-depth", "m", 0, "Set the max depth of recursion of visited URLs. Leave blank to allow all.")
+	scrapeCmd.PersistentFlags().StringVarP(&scrapePath, "output-dir", "o", "sites", "Output scraped websites to a specific directory.")
+	scrapeCmd.PersistentFlags().StringVarP(&userAgent, "user-agent", "u", "colly - https://github.com/gocolly/colly", "Set the user agent used by the scraper.")
+	scrapeCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output of logs.")
 }
 
 func runScrape(site *url.URL) {
-	var c *colly.Collector
+	var (
+		c *colly.Collector
+		d = new(debug.LogDebugger)
+	)
 
-	if ignoreRobots {
+	log.Info("Starting scrape of ", site.Host)
+
+	if cacheDir != "" {
+		log.Info("Setting cache directory: ", cacheDir)
+		c = colly.NewCollector(
+			colly.AllowedDomains(site.Host),
+			colly.CacheDir(cacheDir),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
+		)
+	} else if debugger {
+		log.Info("Turning on debugger")
+		c = colly.NewCollector(
+			colly.AllowedDomains(site.Host),
+			colly.Debugger(d),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
+		)
+	} else if ignoreRobots {
+		log.Info("Ignoring robots.txt...")
 		c = colly.NewCollector(
 			colly.AllowedDomains(site.Host),
 			colly.IgnoreRobotsTxt(),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
+		)
+	} else if cacheDir != "" && debugger {
+		log.Info("Setting cache directory: ", cacheDir)
+		log.Info("Turning on debugger")
+		c = colly.NewCollector(
+			colly.AllowedDomains(site.Host),
+			colly.CacheDir(cacheDir),
+			colly.Debugger(d),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
+		)
+	} else if cacheDir != "" && ignoreRobots {
+		log.Info("Ignoring robots.txt...")
+		log.Info("Setting cache directory: ", cacheDir)
+		c = colly.NewCollector(
+			colly.AllowedDomains(site.Host),
+			colly.IgnoreRobotsTxt(),
+			colly.CacheDir(cacheDir),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
+		)
+	} else if debugger && ignoreRobots {
+		log.Info("Ignoring robots.txt...")
+		log.Info("Turning on debugger")
+		c = colly.NewCollector(
+			colly.AllowedDomains(site.Host),
+			colly.IgnoreRobotsTxt(),
+			colly.Debugger(d),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
+		)
+	} else if ignoreRobots && cacheDir != "" && debugger {
+		log.Info("Ignoring robots.txt...")
+		log.Info("Setting cache directory: ", cacheDir)
+		log.Info("Turning on debugger")
+		c = colly.NewCollector(
+			colly.AllowedDomains(site.Host),
+			colly.IgnoreRobotsTxt(),
+			colly.CacheDir(cacheDir),
+			colly.Debugger(d),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
 		)
 	} else {
 		c = colly.NewCollector(
 			colly.AllowedDomains(site.Host),
+			colly.MaxDepth(maxDepth),
+			colly.UserAgent(userAgent),
 		)
 	}
 
@@ -102,12 +191,12 @@ func runScrape(site *url.URL) {
 				if err != nil {
 					log.Warn(p+" could not be created: ", err)
 				}
-				err = r.Save("site/" + site.Host + "/" + p)
+				err = r.Save(scrapePath + "/" + site.Host + "/" + p)
 				if err != nil {
 					log.Warn("Error saving a scraped file:", err)
 				}
 			} else {
-				err := r.Save("site/" + site.Host + "/index.html")
+				err := r.Save(scrapePath + "/" + site.Host + "/index.html")
 				if err != nil {
 					log.Warn("Error saving a scraped file:", err)
 				}
@@ -119,11 +208,10 @@ func runScrape(site *url.URL) {
 }
 
 func createFilePath(filePath string, site string) error {
-	buildFilePath := "site/" + site
+	log.Info("Creating filepath: ", scrapePath+"/"+site+filePath)
+	buildFilePath := scrapePath + "/" + site
 	slicedPath := strings.Split(filePath, "/")
 	directories := slicedPath[0 : len(slicedPath)-1]
-
-	// fmt.Println(filePath, site)
 
 	for _, s := range directories {
 		if len(s) == 0 {
@@ -160,7 +248,7 @@ func matchCSSLinks(r *colly.Request, stylesheet string) {
 		if err != nil {
 			log.Warn("Error creating filepath:", err)
 		}
-		err = downloadResource("site/"+r.URL.Host+link, r.URL.Scheme+"://"+r.URL.Host+link)
+		err = downloadResource(scrapePath+"/"+r.URL.Host+link, r.URL.Scheme+"://"+r.URL.Host+link)
 		if err != nil {
 			log.Warn("Error downloading resource: ", err)
 		}
@@ -168,6 +256,7 @@ func matchCSSLinks(r *colly.Request, stylesheet string) {
 }
 
 func downloadResource(filepath string, url string) (err error) {
+	log.Info("Saving resource: ", filepath)
 	out, err := os.Create(filepath)
 	if err != nil {
 		return err
