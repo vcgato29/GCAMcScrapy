@@ -21,7 +21,6 @@ data
 #
 pkg
 bin
-vendor
 site
 
 # Ansible and Vagrant
