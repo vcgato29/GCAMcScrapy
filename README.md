@@ -1,4 +1,4 @@
-# McScrapy
+# GCA McScrapy
 ### Genesis
 To maintain and enhance GCA’s secure operating environment, a secure Website nearly immune to compromise was established in September 2016 and the DMARC micro-site was established in October 2016. Both Websites were created using WordPress in order to allow content creators the ability to modify text on the sites with ease.
  
